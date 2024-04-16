@@ -1,0 +1,11 @@
+services:
+  redis_codecrafters:
+    build:
+      context: .
+    container_name: redis_codecrafters
+    ports:
+      - "6379:6379"
+
+  redis:
+    image: "redis:latest"
+    container_name: redis
