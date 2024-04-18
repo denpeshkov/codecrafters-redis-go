@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/codecrafters-io/redis-starter-go/internal/errs"
 	"github.com/codecrafters-io/redis-starter-go/internal/proto"
@@ -20,6 +21,23 @@ type Server struct {
 	mu   sync.RWMutex
 	cmds map[string]CommandHandler
 	db   map[string]string
+	ttl  map[string]time.Time
+}
+
+type janitor struct {
+	interval time.Duration
+	// TODO add close channel to prevent goroutine leak
+}
+
+func runJanitor(interval time.Duration, s *Server) {
+	go (&janitor{interval: interval}).Run(s)
+}
+
+func (j *janitor) Run(s *Server) {
+	t := time.NewTicker(j.interval)
+	for range t.C {
+		s.deleteExpired()
+	}
 }
 
 func NewServer(addr string) *Server {
@@ -27,6 +45,7 @@ func NewServer(addr string) *Server {
 		addr: addr,
 		cmds: make(map[string]CommandHandler),
 		db:   make(map[string]string),
+		ttl:  make(map[string]time.Time),
 	}
 
 	s.Register("ping", s.HandlePing)
@@ -39,6 +58,8 @@ func NewServer(addr string) *Server {
 
 func (s *Server) Start() (err error) {
 	defer errs.Wrap(&err, "Server.Start")
+
+	runJanitor(100*time.Millisecond, s)
 
 	l, err := net.Listen("tcp", s.addr)
 	if err != nil {
@@ -84,6 +105,23 @@ func (s *Server) ServeConn(conn net.Conn) {
 		}
 		if err := h(cmd, w); err != nil {
 			fmt.Printf("Error processing command: %q: %v\n", cmd.Name, err)
+		}
+	}
+}
+
+func (s *Server) deleteKey(key string) {
+	delete(s.db, key)
+	delete(s.ttl, key)
+}
+
+func (s *Server) deleteExpired() {
+	now := time.Now()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, t := range s.ttl {
+		if !t.After(now) {
+			s.deleteKey(k)
 		}
 	}
 }
