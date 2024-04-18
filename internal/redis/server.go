@@ -12,23 +12,27 @@ import (
 	"github.com/codecrafters-io/redis-starter-go/internal/proto"
 )
 
-type CommandHandler func(cmd proto.Command, w *proto.Writer) error
+type CommandHandler func(cmd *proto.Command, w *proto.Writer) error
 
 type Server struct {
 	addr string
 
 	mu   sync.RWMutex
 	cmds map[string]CommandHandler
+	db   map[string]string
 }
 
 func NewServer(addr string) *Server {
 	s := &Server{
 		addr: addr,
 		cmds: make(map[string]CommandHandler),
+		db:   make(map[string]string),
 	}
 
 	s.Register("ping", s.HandlePing)
 	s.Register("echo", s.HandleEcho)
+	s.Register("set", s.HandleSet)
+	s.Register("get", s.HandleGet)
 
 	return s
 }
@@ -65,7 +69,7 @@ func (s *Server) ServeConn(conn net.Conn) {
 	for {
 		cmd, err := r.Read()
 		if errors.Is(err, io.EOF) {
-			fmt.Println("Closing connection")
+			fmt.Println("Closed connection")
 			return
 		}
 		if err != nil {
@@ -73,13 +77,13 @@ func (s *Server) ServeConn(conn net.Conn) {
 			return
 		}
 		s.mu.RLock()
-		h, ok := s.cmds[cmd.Name()]
+		h, ok := s.cmds[cmd.Name]
 		s.mu.RUnlock()
 		if !ok {
-			fmt.Printf("No handler for command: %q\n", cmd.Name())
+			fmt.Printf("No handler for command: %q\n", cmd.Name)
 		}
 		if err := h(cmd, w); err != nil {
-			fmt.Printf("Error processing command: %q: %v\n", cmd.Name(), err)
+			fmt.Printf("Error processing command: %q: %v\n", cmd.Name, err)
 		}
 	}
 }
